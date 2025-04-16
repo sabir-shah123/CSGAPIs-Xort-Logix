@@ -26,39 +26,49 @@ class AuthKeyController extends Controller
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         $response = curl_exec($ch);
         if (curl_errno($ch)) {
-            echo 'cURL Error: ' . curl_error($ch);
+            return response()->json(['error' => curl_error($ch)]);
         }
         curl_close($ch);
         
         $data = json_decode($response);
-
+    
+        if (!$data || !isset($data->token)) {
+            return response()->json(['error' => 'Invalid response from API']);
+        }
+    
         $key = $data->token;
-        $type = $data->client_type;
-        $expires_at = $data->expires_date;
-        $last_used_at = $data->last_activity;
-
+        $type = $data->client_type ?? null;
+        $expires_at = $data->expires_date ?? null;
+        $last_used_at = $data->last_activity ?? null;
+    
         $data = [
             "key" => $key,
             "type" => $type,
             "expires_at" => $expires_at,
             "last_used_at" => $last_used_at,
-            'created_at' => date('Y-m-d H:i:s'),
-            'updated_at' => date('Y-m-d H:i:s')
+            'created_at' => now(),
+            'updated_at' => now()
         ];
-
-        $data = array_merge($data, ['user_id' => 1]);
-
-        try{
-            DB::table('auth_keys')->insert($data);
-            $getToken = DB::table('auth_keys')->first();
-            if($fresh){
+    
+        try {
+          
+            DB::table('auth_keys')->updateOrInsert(
+                ['user_id' => 1],
+                $data 
+            );
+    
+    
+            $getToken = DB::table('auth_keys')->where('user_id', 1)->first();
+    
+            if ($fresh) {
                 return $getToken;
             }
             return response()->json(['status' => 'success', 'token' => $getToken]);
-        }catch(\Exception $e){
+        } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()]);
         }
     }
+    
 
 
     //make a API call function globally
@@ -69,15 +79,16 @@ class AuthKeyController extends Controller
 
         $token = DB::table('auth_keys')->first();
         if(!$token){
-            return response()->json(['error' => 'Token not found, Please create the token']);
+            $token = $this->refreshAuth(true);
         }
+        
 
         $expires_at = Carbon::parse($token->expires_at);
         $current_time = Carbon::now();
         //difference in minutes
         $diff = $current_time->diffInHours($expires_at);
-
-        if($diff < 1){
+        
+        if($diff >= 7){
            $token = $this->refreshAuth(true);
         }
 
